@@ -15,6 +15,7 @@ import org.junit.Test
 import org.mozilla.fenix.customannotations.SmokeTest
 import org.mozilla.fenix.helpers.AndroidAssetDispatcher
 import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
+import org.mozilla.fenix.helpers.TestAssetHelper
 import org.mozilla.fenix.helpers.TestAssetHelper.getGenericAsset
 import org.mozilla.fenix.helpers.TestHelper.clickSnackbarButton
 import org.mozilla.fenix.ui.robots.browserScreen
@@ -91,6 +92,19 @@ class CollectionTest {
 
         homeScreen {
             verifyCollectionIsDisplayed(collectionName)
+        }
+    }
+
+    // TestRail link: https://testrail.stage.mozaws.net/index.php?/cases/view/2283299
+    @Test
+    fun createFirstCollectionFromMainMenuTest() {
+        val defaultWebPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
+
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(defaultWebPage.url) {
+        }.openThreeDotMenu {
+        }.openSaveToCollection {
+            verifyCollectionNameTextField()
         }
     }
 
@@ -354,6 +368,31 @@ class CollectionTest {
     }
 
     @Test
+    fun undoTabRemovalFromCollectionTest() {
+        val webPage = getGenericAsset(mockWebServer, 1)
+
+        navigationToolbar {
+        }.enterURLAndEnterToBrowser(webPage.url) {
+        }.openTabDrawer {
+            createCollection(webPage.title, collectionName = collectionName)
+            closeTab()
+        }
+
+        homeScreen {
+            verifyCollectionIsDisplayed(collectionName)
+        }.expandCollection(collectionName) {
+            verifyTabSavedInCollection(webPage.title, true)
+            removeTabFromCollection(webPage.title)
+        }
+        homeScreen {
+            verifySnackBarText("Collection deleted")
+            clickSnackbarButton("UNDO")
+            verifyCollectionIsDisplayed(collectionName, true)
+            verifyCollectionIsDisplayed(collectionName, true)
+        }
+    }
+
+    @Test
     fun swipeLeftToRemoveTabFromCollectionTest() {
         val testPage = getGenericAsset(mockWebServer, 1)
 
@@ -375,6 +414,8 @@ class CollectionTest {
             verifyTabSavedInCollection(testPage.title, false)
         }
         homeScreen {
+            verifySnackBarText("Collection deleted")
+            verifySnackBarText("UNDO")
             verifyCollectionIsDisplayed(collectionName, false)
         }
     }
@@ -401,6 +442,8 @@ class CollectionTest {
             verifyTabSavedInCollection(testPage.title, false)
         }
         homeScreen {
+            verifySnackBarText("Collection deleted")
+            verifySnackBarText("UNDO")
             verifyCollectionIsDisplayed(collectionName, false)
         }
     }

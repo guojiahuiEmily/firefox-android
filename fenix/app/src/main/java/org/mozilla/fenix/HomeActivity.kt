@@ -33,6 +33,7 @@ import androidx.annotation.VisibleForTesting.Companion.PROTECTED
 import androidx.appcompat.app.ActionBar
 import androidx.appcompat.widget.Toolbar
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDirections
@@ -43,10 +44,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers.IO
 import kotlinx.coroutines.Dispatchers.Main
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.action.ContentAction
+import mozilla.components.browser.state.action.MediaSessionAction
 import mozilla.components.browser.state.action.SearchAction
 import mozilla.components.browser.state.search.SearchEngine
 import mozilla.components.browser.state.selector.getNormalOrPrivateTabs
@@ -77,14 +80,18 @@ import mozilla.components.support.utils.BrowsersCache
 import mozilla.components.support.utils.ManufacturerCodes
 import mozilla.components.support.utils.SafeIntent
 import mozilla.components.support.utils.toSafeIntent
-import mozilla.components.support.webextensions.WebExtensionPopupFeature
+import mozilla.components.support.webextensions.WebExtensionPopupObserver
 import mozilla.telemetry.glean.private.NoExtras
 import org.mozilla.experiments.nimbus.initializeTooling
+import org.mozilla.fenix.GleanMetrics.AppIcon
 import org.mozilla.fenix.GleanMetrics.Events
 import org.mozilla.fenix.GleanMetrics.Metrics
+import org.mozilla.fenix.GleanMetrics.PlayStoreAttribution
+import org.mozilla.fenix.GleanMetrics.SplashScreen
 import org.mozilla.fenix.GleanMetrics.StartOnHome
 import org.mozilla.fenix.addons.AddonDetailsFragmentDirections
 import org.mozilla.fenix.addons.AddonPermissionsDetailsFragmentDirections
+import org.mozilla.fenix.addons.ExtensionProcessDisabledController
 import org.mozilla.fenix.browser.browsingmode.BrowsingMode
 import org.mozilla.fenix.browser.browsingmode.BrowsingModeManager
 import org.mozilla.fenix.browser.browsingmode.DefaultBrowsingModeManager
@@ -146,6 +153,8 @@ import org.mozilla.fenix.settings.search.SaveSearchEngineFragmentDirections
 import org.mozilla.fenix.settings.studies.StudiesFragmentDirections
 import org.mozilla.fenix.settings.wallpaper.WallpaperSettingsFragmentDirections
 import org.mozilla.fenix.share.AddNewDeviceFragmentDirections
+import org.mozilla.fenix.shopping.ReviewQualityCheckFragmentDirections
+import org.mozilla.fenix.shortcut.NewTabShortcutIntentProcessor.Companion.ACTION_OPEN_PRIVATE_TAB
 import org.mozilla.fenix.tabhistory.TabHistoryDialogFragment
 import org.mozilla.fenix.tabstray.TabsTrayFragment
 import org.mozilla.fenix.tabstray.TabsTrayFragmentDirections
@@ -181,8 +190,12 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
 
     private var isToolbarInflated = false
 
-    private val webExtensionPopupFeature by lazy {
-        WebExtensionPopupFeature(components.core.store, ::openPopup)
+    private val webExtensionPopupObserver by lazy {
+        WebExtensionPopupObserver(components.core.store, ::openPopup)
+    }
+
+    private val extensionProcessDisabledPopupObserver by lazy {
+        ExtensionProcessDisabledController(this@HomeActivity, components.core.store)
     }
 
     private val serviceWorkerSupport by lazy {
@@ -228,6 +241,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         components.analytics.experiments.initializeTooling(applicationContext, intent)
         components.strictMode.attachListenerToDisablePenaltyDeath(supportFragmentManager)
         MarkersFragmentLifecycleCallbacks.register(supportFragmentManager, components.core.engine)
+
+        PlayStoreAttribution.deferredDeeplinkTime.start()
+        maybeShowSplashScreen()
 
         // There is disk read violations on some devices such as samsung and pixel for android 9/10
         components.strictMode.resetAfter(StrictMode.allowThreadDiskReads()) {
@@ -292,6 +308,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
             if (savedInstanceState == null) {
                 navigateToHome()
             }
+
             if (!shouldStartOnHome() && shouldNavigateToBrowserOnColdStart(savedInstanceState)) {
                 navigateToBrowserOnColdStart()
             } else {
@@ -301,6 +318,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
             if (settings().showHomeOnboardingDialog && components.fenixOnboarding.userHasBeenOnboarded()) {
                 navHost.navController.navigate(NavGraphDirections.actionGlobalHomeOnboardingDialog())
             }
+
             showNotificationPermissionPromptIfRequired()
         }
 
@@ -322,11 +340,15 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
                     Events.appOpened.record(Events.AppOpenedExtra(it))
                     // This will record an event in Nimbus' internal event store. Used for behavioral targeting
                     components.analytics.experiments.recordEvent("app_opened")
+
+                    if (safeIntent.action.equals(ACTION_OPEN_PRIVATE_TAB) && it == APP_ICON) {
+                        AppIcon.newPrivateTabTapped.record(NoExtras())
+                    }
                 }
         }
         supportActionBar?.hide()
 
-        lifecycle.addObservers(webExtensionPopupFeature, serviceWorkerSupport)
+        lifecycle.addObservers(webExtensionPopupObserver, extensionProcessDisabledPopupObserver, serviceWorkerSupport)
 
         if (shouldAddToRecentsScreen(intent)) {
             intent.removeExtra(START_IN_RECENTS_SCREEN)
@@ -345,6 +367,11 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
 
         if (settings().showContileFeature) {
             components.core.contileTopSitesUpdater.startPeriodicWork()
+        }
+
+        if (settings().enableUnifiedSearchSettingsUI && !settings().hiddenEnginesRestored) {
+            settings().hiddenEnginesRestored = true
+            components.useCases.searchUseCases.restoreHiddenSearchEngines.invoke()
         }
 
         // To assess whether the Pocket stories are to be downloaded or not multiple SharedPreferences
@@ -388,10 +415,6 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
      * Show the pre permission dialog to the user once if the notification are not enabled.
      */
     private fun showNotificationPermissionPromptIfRequired() {
-        if (settings().junoOnboardingEnabled) {
-            return
-        }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !NotificationManagerCompat.from(applicationContext).areNotificationsEnabledSafe() &&
             settings().numberOfAppLaunches <= 1
@@ -407,6 +430,39 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
             } else {
                 // This will trigger the notification permission system dialog as app targets sdk 32.
                 ensureMarketingChannelExists(applicationContext)
+            }
+        }
+    }
+
+    private fun maybeShowSplashScreen() {
+        if (components.settings.isFirstSplashScreenShown) {
+            return
+        } else {
+            components.settings.isFirstSplashScreenShown = true
+            // Splash screen compat fails to draw icons on earlier versions.
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.M) {
+                return
+            }
+        }
+
+        if (FxNimbus.features.splashScreen.value().enabled) {
+            val splashScreen = installSplashScreen()
+            var maxDurationReached = false
+            val delay = FxNimbus.features.splashScreen.value().maximumDurationMs.toLong()
+            splashScreen.setKeepOnScreenCondition {
+                val dataFetched = components.settings.utmParamsKnown &&
+                    components.settings.nimbusExperimentsFetched
+                val keepOnScreen = !maxDurationReached && !dataFetched
+                if (!keepOnScreen) {
+                    SplashScreen.firstLaunchExtended.record(
+                        SplashScreen.FirstLaunchExtendedExtra(dataFetched = dataFetched),
+                    )
+                }
+                keepOnScreen
+            }
+            MainScope().launch {
+                delay(timeMillis = delay)
+                maxDurationReached = true
             }
         }
     }
@@ -500,6 +556,8 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
                 "finishing" to isFinishing.toString(),
             ),
         )
+
+        PlayStoreAttribution.deferredDeeplinkTime.cancel()
     }
 
     final override fun onPause() {
@@ -564,6 +622,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         components.core.pocketStoriesService.stopPeriodicSponsoredStoriesRefresh()
         privateNotificationObserver?.stop()
         components.notificationsDelegate.unBindActivity(this)
+        stopMediaSession()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -792,7 +851,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
     @VisibleForTesting(otherwise = PROTECTED)
     internal open fun getIntentSource(intent: SafeIntent): String? {
         return when {
-            intent.isLauncherIntent -> "APP_ICON"
+            intent.isLauncherIntent -> APP_ICON
             intent.action == Intent.ACTION_VIEW -> "LINK"
             else -> null
         }
@@ -834,6 +893,23 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         themeManager.applyStatusBarTheme(this)
     }
 
+    // Stop active media when activity is destroyed.
+    private fun stopMediaSession() {
+        if (isFinishing) {
+            components.core.store.state.tabs.forEach {
+                it.mediaSessionState?.controller?.stop()
+            }
+
+            components.core.store.state.findActiveMediaTab()?.let {
+                components.core.store.dispatch(
+                    MediaSessionAction.DeactivatedMediaSessionAction(
+                        it.id,
+                    ),
+                )
+            }
+        }
+    }
+
     /**
      * Returns the [supportActionBar], inflating it if necessary.
      * Everyone should call this instead of supportActionBar.
@@ -872,6 +948,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
      * value of [searchTermOrURL]).
      *
      * @param flags Flags that will be used when loading the URL (not applied to searches).
+     * @param additionalHeaders The extra headers to use when loading the URL.
      */
     @Suppress("LongParameterList")
     fun openToBrowserAndLoad(
@@ -884,9 +961,19 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         flags: EngineSession.LoadUrlFlags = EngineSession.LoadUrlFlags.none(),
         requestDesktopMode: Boolean = false,
         historyMetadata: HistoryMetadataKey? = null,
+        additionalHeaders: Map<String, String>? = null,
     ) {
         openToBrowser(from, customTabSessionId)
-        load(searchTermOrURL, newTab, engine, forceSearch, flags, requestDesktopMode, historyMetadata)
+        load(
+            searchTermOrURL = searchTermOrURL,
+            newTab = newTab,
+            engine = engine,
+            forceSearch = forceSearch,
+            flags = flags,
+            requestDesktopMode = requestDesktopMode,
+            historyMetadata = historyMetadata,
+            additionalHeaders = additionalHeaders,
+        )
     }
 
     fun openToBrowser(from: BrowserDirection, customTabSessionId: String? = null) {
@@ -957,6 +1044,9 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         BrowserDirection.FromStudiesFragment -> StudiesFragmentDirections.actionGlobalBrowser(
             customTabSessionId,
         )
+        BrowserDirection.FromReviewQualityCheck -> ReviewQualityCheckFragmentDirections.actionGlobalBrowser(
+            customTabSessionId,
+        )
     }
 
     /**
@@ -965,6 +1055,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
      * @param flags Flags that will be used when loading the URL (not applied to searches).
      * @param historyMetadata The [HistoryMetadataKey] of the new tab in case this tab
      * was opened from history.
+     * @param additionalHeaders The extra headers to use when loading the URL.
      */
     private fun load(
         searchTermOrURL: String,
@@ -974,6 +1065,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         flags: EngineSession.LoadUrlFlags = EngineSession.LoadUrlFlags.none(),
         requestDesktopMode: Boolean = false,
         historyMetadata: HistoryMetadataKey? = null,
+        additionalHeaders: Map<String, String>? = null,
     ) {
         val startTime = components.core.engine.profiler?.getProfilerTime()
         val mode = browsingModeManager.mode
@@ -1013,13 +1105,20 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
                     components.useCases.searchUseCases.newTabSearch
                 }
                 searchUseCase.invoke(
-                    searchTermOrURL,
-                    SessionState.Source.Internal.UserEntered,
-                    true,
+                    searchTerms = searchTermOrURL,
+                    source = SessionState.Source.Internal.UserEntered,
+                    selected = true,
                     searchEngine = engine,
+                    flags = flags,
+                    additionalHeaders = additionalHeaders,
                 )
             } else {
-                components.useCases.searchUseCases.defaultSearch.invoke(searchTermOrURL, engine)
+                components.useCases.searchUseCases.defaultSearch.invoke(
+                    searchTerms = searchTermOrURL,
+                    searchEngine = engine,
+                    flags = flags,
+                    additionalHeaders = additionalHeaders,
+                )
             }
         }
 
@@ -1052,11 +1151,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
     }
 
     open fun navigateToHome() {
-        if (components.fenixOnboarding.userHasBeenOnboarded()) {
-            navHost.navController.navigate(NavGraphDirections.actionStartupHome())
-        } else {
-            navHost.navController.navigate(NavGraphDirections.actionStartupOnboarding())
-        }
+        navHost.navController.navigate(NavGraphDirections.actionStartupHome())
     }
 
     override fun attachBaseContext(base: Context) {
@@ -1223,6 +1318,7 @@ open class HomeActivity : LocaleAwareAppCompatActivity(), NavHostActivity {
         const val PRIVATE_BROWSING_MODE = "private_browsing_mode"
         const val START_IN_RECENTS_SCREEN = "start_in_recents_screen"
         const val OPEN_PASSWORD_MANAGER = "open_password_manager"
+        const val APP_ICON = "APP_ICON"
 
         // PWA must have been used within last 30 days to be considered "recently used" for the
         // telemetry purposes.

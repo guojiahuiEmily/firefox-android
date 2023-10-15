@@ -294,6 +294,7 @@ class GeckoEngineSessionTest {
         var observedCanGoBack = false
         var observedCanGoForward = false
         var cookieBanner = CookieBannerHandlingStatus.HANDLED
+        var displaysProduct = false
         engineSession.register(
             object : EngineSession.Observer {
                 override fun onLocationChange(url: String) { observedUrl = url }
@@ -304,6 +305,9 @@ class GeckoEngineSessionTest {
                 override fun onCookieBannerChange(status: CookieBannerHandlingStatus) {
                     cookieBanner = status
                 }
+                override fun onProductUrlChange(isProductUrl: Boolean) {
+                    displaysProduct = isProductUrl
+                }
             },
         )
 
@@ -312,6 +316,8 @@ class GeckoEngineSessionTest {
         navigationDelegate.value.onLocationChange(mock(), "http://mozilla.org", emptyList())
         assertEquals("http://mozilla.org", observedUrl)
         assertEquals(CookieBannerHandlingStatus.NO_DETECTED, cookieBanner)
+        // TO DO: add a positive test case after a test endpoint is implemented in desktop (Bug 1846341)
+        assertEquals(false, displaysProduct)
 
         navigationDelegate.value.onCanGoBack(mock(), true)
         assertEquals(true, observedCanGoBack)
@@ -585,7 +591,18 @@ class GeckoEngineSessionTest {
         val extraHeaders = mapOf("X-Extra-Header" to "true")
         engineSession.loadUrl("http://www.mozilla.org", additionalHeaders = extraHeaders)
         verify(geckoSession).load(
-            GeckoSession.Loader().uri("http://www.mozilla.org").additionalHeaders(extraHeaders),
+            GeckoSession.Loader().uri("http://www.mozilla.org").additionalHeaders(extraHeaders)
+                .headerFilter(GeckoSession.HEADER_FILTER_CORS_SAFELISTED),
+        )
+
+        engineSession.loadUrl(
+            "http://www.mozilla.org",
+            flags = LoadUrlFlags.select(LoadUrlFlags.ALLOW_ADDITIONAL_HEADERS),
+            additionalHeaders = extraHeaders,
+        )
+        verify(geckoSession).load(
+            GeckoSession.Loader().uri("http://www.mozilla.org").additionalHeaders(extraHeaders)
+                .headerFilter(GeckoSession.HEADER_FILTER_CORS_SAFELISTED),
         )
     }
 
@@ -635,6 +652,23 @@ class GeckoEngineSessionTest {
         verify(geckoSession).load(
             GeckoSession.Loader().data("ahr0cdovl21vemlsbgeub3jn==".toByteArray(), "text/html"),
         )
+    }
+
+    @Test
+    fun `getGeckoFlags returns only gecko load flags`() {
+        val flags = LoadUrlFlags.select(LoadUrlFlags.all().getGeckoFlags())
+
+        assertFalse(flags.contains(LoadUrlFlags.NONE))
+        assertTrue(flags.contains(LoadUrlFlags.BYPASS_CACHE))
+        assertTrue(flags.contains(LoadUrlFlags.BYPASS_PROXY))
+        assertTrue(flags.contains(LoadUrlFlags.EXTERNAL))
+        assertTrue(flags.contains(LoadUrlFlags.ALLOW_POPUPS))
+        assertTrue(flags.contains(LoadUrlFlags.BYPASS_CLASSIFIER))
+        assertTrue(flags.contains(LoadUrlFlags.LOAD_FLAGS_FORCE_ALLOW_DATA_URI))
+        assertTrue(flags.contains(LoadUrlFlags.LOAD_FLAGS_REPLACE_HISTORY))
+        assertTrue(flags.contains(LoadUrlFlags.LOAD_FLAGS_BYPASS_LOAD_URI_DELEGATE))
+        assertFalse(flags.contains(LoadUrlFlags.ALLOW_ADDITIONAL_HEADERS))
+        assertFalse(flags.contains(LoadUrlFlags.ALLOW_JAVASCRIPT_URL))
     }
 
     @Test

@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 from taskgraph.transforms.base import TransformSequence
 from taskgraph.util.dependencies import get_dependencies
 
@@ -21,7 +25,7 @@ def build_upstream_artifacts(config, tasks):
             "upstream-artifacts": [],
         }
         if "artifact_map" in task["attributes"]:
-            # Beetmover-fenix tasks use declarative artifacts.
+            # Beetmover-apk tasks use declarative artifacts.
             locale = task["attributes"].get("locale")
             build_type = task["attributes"]["build-type"]
             worker_definition[
@@ -36,6 +40,8 @@ def build_upstream_artifacts(config, tasks):
                         for apk_metadata in dep.attributes.get("apks", {}).values()
                     ]
                 )
+                if dep.attributes.get("aab"):
+                    paths.extend([dep.attributes.get("aab")])
                 if paths:
                     worker_definition["upstream-artifacts"].append(
                         {

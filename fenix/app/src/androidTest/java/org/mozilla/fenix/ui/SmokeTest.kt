@@ -28,13 +28,10 @@ import org.mozilla.fenix.helpers.HomeActivityIntentTestRule
 import org.mozilla.fenix.helpers.MatcherHelper.itemWithText
 import org.mozilla.fenix.helpers.RetryTestRule
 import org.mozilla.fenix.helpers.TestAssetHelper
-import org.mozilla.fenix.helpers.TestHelper.assertYoutubeAppOpens
-import org.mozilla.fenix.helpers.TestHelper.createCustomTabIntent
 import org.mozilla.fenix.helpers.TestHelper.registerAndCleanupIdlingResources
 import org.mozilla.fenix.helpers.ViewVisibilityIdlingResource
 import org.mozilla.fenix.ui.robots.browserScreen
 import org.mozilla.fenix.ui.robots.clickPageObject
-import org.mozilla.fenix.ui.robots.customTabScreen
 import org.mozilla.fenix.ui.robots.homeScreen
 import org.mozilla.fenix.ui.robots.navigationToolbar
 
@@ -49,7 +46,6 @@ import org.mozilla.fenix.ui.robots.navigationToolbar
 class SmokeTest {
     private lateinit var mDevice: UiDevice
     private lateinit var mockWebServer: MockWebServer
-    private val customMenuItem = "TestMenuItem"
     private lateinit var browserStore: BrowserStore
 
     @get:Rule(order = 0)
@@ -87,113 +83,6 @@ class SmokeTest {
         mockWebServer.shutdown()
     }
 
-    /* Verifies the nav bar:
-     - opening a web page
-     - the existence of nav bar items
-     - editing the url bar
-     - the tab drawer button
-     - opening a new search and dismissing the nav bar
-    */
-    @Test
-    fun verifyBasicNavigationToolbarFunctionality() {
-        val defaultWebPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        homeScreen {
-            navigationToolbar {
-            }.enterURLAndEnterToBrowser(defaultWebPage.url) {
-                mDevice.waitForIdle()
-                verifyNavURLBarItems()
-            }.openNavigationToolbar {
-            }.goBackToWebsite {
-            }.openTabDrawer {
-                verifyExistingTabList()
-            }.openNewTab {
-            }.dismissSearchBar {
-                verifyHomeScreen()
-            }
-        }
-    }
-
-    // Device or AVD requires a Google Services Android OS installation with Play Store installed
-    // Verifies the Open in app button when an app is installed
-    @Test
-    fun mainMenuOpenInAppTest() {
-        val youtubeURL = "https://m.youtube.com/user/mozilla?cbrd=1"
-
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(youtubeURL.toUri()) {
-            verifyNotificationDotOnMainMenu()
-        }.openThreeDotMenu {
-        }.clickOpenInApp {
-            assertYoutubeAppOpens()
-        }
-    }
-
-    // Verifies changing the default engine from the Search Shortcut menu
-    @Test
-    fun selectSearchEnginesShortcutTest() {
-        val enginesList = listOf("DuckDuckGo", "Google", "Amazon.com", "Wikipedia", "Bing", "eBay")
-
-        for (searchEngine in enginesList) {
-            homeScreen {
-            }.openSearch {
-                verifyKeyboardVisibility()
-                clickSearchEngineShortcutButton()
-                verifySearchEngineList(activityTestRule)
-                changeDefaultSearchEngine(activityTestRule, searchEngine)
-                verifySearchEngineIcon(searchEngine)
-            }.submitQuery("mozilla ") {
-                verifyUrl(searchEngine)
-            }.goToHomescreen { }
-        }
-    }
-
-    // Verifies that deleting a Bookmarks folder also removes the item from inside it.
-    @Test
-    fun deleteNonEmptyBookmarkFolderTest() {
-        val website = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        browserScreen {
-            createBookmark(website.url)
-        }.openThreeDotMenu {
-        }.openBookmarks {
-            verifyBookmarkTitle("Test_Page_1")
-            createFolder("My Folder")
-            verifyFolderTitle("My Folder")
-        }.openThreeDotMenu("Test_Page_1") {
-        }.clickEdit {
-            clickParentFolderSelector()
-            selectFolder("My Folder")
-            navigateUp()
-            saveEditBookmark()
-            createFolder("My Folder 2")
-            verifyFolderTitle("My Folder 2")
-        }.openThreeDotMenu("My Folder 2") {
-        }.clickEdit {
-            clickParentFolderSelector()
-            selectFolder("My Folder")
-            navigateUp()
-            saveEditBookmark()
-        }.openThreeDotMenu("My Folder") {
-        }.clickDelete {
-            cancelFolderDeletion()
-            verifyFolderTitle("My Folder")
-        }.openThreeDotMenu("My Folder") {
-        }.clickDelete {
-            confirmDeletion()
-            verifyDeleteSnackBarText()
-            verifyBookmarkIsDeleted("My Folder")
-            verifyBookmarkIsDeleted("My Folder 2")
-            verifyBookmarkIsDeleted("Test_Page_1")
-            navigateUp()
-        }
-
-        browserScreen {
-        }.openThreeDotMenu {
-            verifyAddBookmarkButton()
-        }
-    }
-
     @Test
     fun shareTabsFromTabsTrayTest() {
         val firstWebsite = TestAssetHelper.getGenericAsset(mockWebServer, 1)
@@ -223,21 +112,6 @@ class SmokeTest {
                 sharedUrlsString,
                 "$firstWebsiteTitle, $secondWebsiteTitle",
             )
-        }
-    }
-
-    @Test
-    fun emptyTabsTrayViewPrivateBrowsingTest() {
-        navigationToolbar {
-        }.openTabTray {
-        }.toggleToPrivateTabs() {
-            verifyNormalBrowsingButtonIsSelected(false)
-            verifyPrivateBrowsingButtonIsSelected(true)
-            verifySyncedTabsButtonIsSelected(false)
-            verifyNoOpenTabsInPrivateBrowsing()
-            verifyPrivateBrowsingNewTabButton()
-            verifyTabTrayOverflowMenu(true)
-            verifyEmptyTabsTrayMenuButtons()
         }
     }
 
@@ -342,51 +216,6 @@ class SmokeTest {
         }
     }
 
-    // Verifies the main menu of a custom tab with a custom menu item
-    @Test
-    fun customTabMenuItemsTest() {
-        val customTabPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        intentReceiverActivityTestRule.launchActivity(
-            createCustomTabIntent(
-                customTabPage.url.toString(),
-                customMenuItem,
-            ),
-        )
-
-        customTabScreen {
-            verifyCustomTabCloseButton()
-        }.openMainMenu {
-            verifyPoweredByTextIsDisplayed()
-            verifyCustomMenuItem(customMenuItem)
-            verifyDesktopSiteButtonExists()
-            verifyFindInPageButtonExists()
-            verifyOpenInBrowserButtonExists()
-            verifyBackButtonExists()
-            verifyForwardButtonExists()
-            verifyRefreshButtonExists()
-        }
-    }
-
-    // The test opens a link in a custom tab then sends it to the browser
-    @Test
-    fun openCustomTabInBrowserTest() {
-        val customTabPage = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        intentReceiverActivityTestRule.launchActivity(
-            createCustomTabIntent(
-                customTabPage.url.toString(),
-            ),
-        )
-
-        customTabScreen {
-            verifyCustomTabCloseButton()
-        }.openMainMenu {
-        }.clickOpenInBrowserButton {
-            verifyTabCounter("1")
-        }
-    }
-
     @Test
     fun tabMediaControlButtonTest() {
         val audioTestPage = TestAssetHelper.getAudioPageAsset(mockWebServer)
@@ -402,100 +231,6 @@ class SmokeTest {
             verifyTabMediaControlButtonState("Play")
         }.openTab(audioTestPage.title) {
             assertPlaybackState(browserStore, MediaSession.PlaybackState.PAUSED)
-        }
-    }
-
-    // For API>23
-    // Verifies the default browser switch opens the system default apps menu.
-    @Test
-    fun changeDefaultBrowserSetting() {
-        homeScreen {
-        }.openThreeDotMenu {
-        }.openSettings {
-            verifyDefaultBrowserToggle(false)
-            clickDefaultBrowserSwitch()
-            verifyAndroidDefaultAppsMenuAppears()
-        }
-        // Dismiss the request
-        mDevice.pressBack()
-    }
-
-    @Test
-    fun goToHomeScreenBottomToolbarTest() {
-        val genericURL = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            mDevice.waitForIdle()
-        }.goToHomescreen {
-            verifyHomeScreen()
-        }
-    }
-
-    @Test
-    fun goToHomeScreenTopToolbarTest() {
-        val genericURL = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        homeScreen {
-        }.openThreeDotMenu {
-        }.openSettings {
-        }.openCustomizeSubMenu {
-            clickTopToolbarToggle()
-        }.goBack {
-        }.goBack {
-        }.openNavigationToolbar {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            mDevice.waitForIdle()
-        }.goToHomescreen {
-            verifyHomeScreen()
-        }
-    }
-
-    @Test
-    fun goToHomeScreenBottomToolbarPrivateModeTest() {
-        val genericURL = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        homeScreen {
-            togglePrivateBrowsingModeOnOff()
-        }
-
-        navigationToolbar {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            mDevice.waitForIdle()
-        }.goToHomescreen {
-            verifyHomeScreen()
-        }
-    }
-
-    @Test
-    fun goToHomeScreenTopToolbarPrivateModeTest() {
-        val genericURL = TestAssetHelper.getGenericAsset(mockWebServer, 1)
-
-        homeScreen {
-            togglePrivateBrowsingModeOnOff()
-        }.openThreeDotMenu {
-        }.openSettings {
-        }.openCustomizeSubMenu {
-            clickTopToolbarToggle()
-        }.goBack {
-        }.goBack {
-        }.openNavigationToolbar {
-        }.enterURLAndEnterToBrowser(genericURL.url) {
-            mDevice.waitForIdle()
-        }.goToHomescreen {
-            verifyHomeScreen()
-        }
-    }
-
-    @Test
-    fun tabsSettingsMenuItemsTest() {
-        homeScreen {
-        }.openThreeDotMenu {
-        }.openSettings {
-        }.openTabsSubMenu {
-            verifyTabViewOptions()
-            verifyCloseTabsOptions()
-            verifyMoveOldTabsToInactiveOptions()
         }
     }
 }

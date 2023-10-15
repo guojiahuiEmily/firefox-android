@@ -50,7 +50,7 @@ object FeatureFlags {
     /**
      * Enables compose on the tabs tray items.
      */
-    const val composeTabsTray = false
+    val composeTabsTray = Config.channel.isNightlyOrDebug
 
     /**
      * Enables compose on the top sites.
@@ -61,5 +61,21 @@ object FeatureFlags {
      * Enables new search settings UI with two extra fragments, for managing the default engine
      * and managing search shortcuts in the quick search menu.
      */
-    val unifiedSearchSettings = Config.channel.isNightlyOrDebug
+    const val unifiedSearchSettings = true
+
+    /**
+     * Enables the lib-state HistoryFragment refactor
+     */
+    val historyFragmentLibStateRefactor = Config.channel.isNightlyOrDebug
+
+    /**
+     * Allows users to enable translations.
+     * Preference to fully enable translations is pref_key_enable_translations.
+     */
+    val translations = Config.channel.isDebug
+
+    /**
+     * Allows users to enable Firefox Suggest.
+     */
+    val fxSuggest = Config.channel.isDebug
 }

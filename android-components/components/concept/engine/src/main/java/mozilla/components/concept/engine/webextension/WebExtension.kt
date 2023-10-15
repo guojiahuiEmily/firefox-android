@@ -479,3 +479,55 @@ fun WebExtension.isUnsupported(): Boolean {
  * (but not exclusively) installing/uninstalling, removing or updating.
  */
 open class WebExtensionException(throwable: Throwable, open val isRecoverable: Boolean = true) : Exception(throwable)
+
+/**
+ * An unexpected event that occurs when installing an extension.
+ */
+sealed class WebExtensionInstallException(
+    open val extensionName: String? = null,
+    throwable: Throwable,
+    override val isRecoverable: Boolean = true,
+) : WebExtensionException(throwable) {
+    /**
+     * The extension install was canceled by the user.
+     */
+    class UserCancelled(override val extensionName: String? = null, throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable)
+
+    /**
+     * The extension install was cancelled because the extension is blocklisted.
+     */
+    class Blocklisted(override val extensionName: String? = null, throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable)
+
+    /**
+     * The extension install was cancelled because the downloaded file
+     * seems to be corrupted in some way.
+     */
+    class CorruptFile(throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable, extensionName = null)
+
+    /**
+     * The extension install was cancelled because the file must be signed and isn't.
+     */
+    class NotSigned(throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable, extensionName = null)
+
+    /**
+     * The extension install was cancelled because it is incompatible.
+     */
+    class Incompatible(override val extensionName: String? = null, throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable)
+
+    /**
+     *  The extension install failed because of a network error.
+     */
+    class NetworkFailure(override val extensionName: String? = null, throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable)
+
+    /**
+     * The extension install failed with an unknown error.
+     */
+    class Unknown(override val extensionName: String? = null, throwable: Throwable) :
+        WebExtensionInstallException(throwable = throwable)
+}

@@ -9,9 +9,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.LifecycleOwner
 import mozilla.components.lib.state.ext.observeAsComposableState
+import org.mozilla.fenix.HomeActivity
 import org.mozilla.fenix.components.components
 import org.mozilla.fenix.compose.ComposeViewHolder
 import org.mozilla.fenix.home.sessioncontrol.TopSiteInteractor
+import org.mozilla.fenix.perf.StartupTimeline
+import org.mozilla.fenix.wallpapers.WallpaperState
 
 /**
  * View holder for top sites.
@@ -31,20 +34,28 @@ class TopSitesViewHolder(
     override fun Content() {
         val topSites =
             components.appStore.observeAsComposableState { state -> state.topSites }.value
-                ?: emptyList()
+        val wallpaperState = components.appStore
+            .observeAsComposableState { state -> state.wallpaperState }.value
+            ?: WallpaperState.default
 
-        TopSites(
-            topSites = topSites,
-            onTopSiteClick = { topSite ->
-                interactor.onSelectTopSite(topSite, topSites.indexOf(topSite))
-            },
-            onTopSiteLongClick = interactor::onTopSiteLongClicked,
-            onOpenInPrivateTabClicked = interactor::onOpenInPrivateTabClicked,
-            onRenameTopSiteClicked = interactor::onRenameTopSiteClicked,
-            onRemoveTopSiteClicked = interactor::onRemoveTopSiteClicked,
-            onSettingsClicked = interactor::onSettingsClicked,
-            onSponsorPrivacyClicked = interactor::onSponsorPrivacyClicked,
-        )
+        topSites?.let {
+            TopSites(
+                topSites = it,
+                topSiteColors = TopSiteColors.colors(wallpaperState = wallpaperState),
+                onTopSiteClick = { topSite ->
+                    interactor.onSelectTopSite(topSite, it.indexOf(topSite))
+                },
+                onTopSiteLongClick = interactor::onTopSiteLongClicked,
+                onOpenInPrivateTabClicked = interactor::onOpenInPrivateTabClicked,
+                onRenameTopSiteClicked = interactor::onRenameTopSiteClicked,
+                onRemoveTopSiteClicked = interactor::onRemoveTopSiteClicked,
+                onSettingsClicked = interactor::onSettingsClicked,
+                onSponsorPrivacyClicked = interactor::onSponsorPrivacyClicked,
+                onTopSitesItemBound = {
+                    StartupTimeline.onTopSitesItemBound(activity = composeView.context as HomeActivity)
+                },
+            )
+        }
     }
 
     companion object {

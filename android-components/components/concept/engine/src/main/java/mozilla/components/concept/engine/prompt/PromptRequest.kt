@@ -129,12 +129,34 @@ sealed class PromptRequest(
         /**
          * Value type that represents Identity Credential request for selecting an [Account] prompt.
          * @property accounts A list of accounts which the user could select from.
+         * @property providerName The name of the provider that will be used for the login
          * @property onConfirm callback to let the page know the user selected an account.
          * @property onDismiss callback to let the page know the user dismissed the dialog.
          */
         data class SelectAccount(
             val accounts: List<Account>,
+            val provider: Provider,
             val onConfirm: (Account) -> Unit,
+            override val onDismiss: () -> Unit,
+        ) : IdentityCredential(onDismiss), Dismissible
+
+        /**
+         * Value type that represents Identity Credential request for a privacy policy prompt.
+         * @property privacyPolicyUrl A The URL where the policy for using this provider is hosted.
+         * @property termsOfServiceUrl The URL where the terms of service for using this provider are.
+         * @property providerDomain The domain of the provider.
+         * @property host The host of the provider.
+         * @property icon A base64 string for given icon for the provider; may be null.
+         * @property onConfirm callback to let the page know the user have confirmed or not the privacy policy.
+         * @property onDismiss callback to let the page know the user dismissed the dialog.
+         */
+        data class PrivacyPolicy(
+            val privacyPolicyUrl: String,
+            val termsOfServiceUrl: String,
+            val providerDomain: String,
+            val host: String,
+            val icon: String?,
+            val onConfirm: (Boolean) -> Unit,
             override val onDismiss: () -> Unit,
         ) : IdentityCredential(onDismiss), Dismissible
     }

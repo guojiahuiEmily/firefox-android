@@ -105,7 +105,8 @@ class FenixApplicationTest {
         every { settings.adjustAdGroup } returns "group"
         every { settings.adjustCreative } returns "creative"
         every { settings.adjustNetwork } returns "network"
-        every { settings.searchWidgetInstalled } returns true
+        // Testing [settings.migrateSearchWidgetInstalledPrefIfNeeded]
+        settings.preferences.edit().putInt("pref_key_search_widget_installed", 5).apply()
         every { settings.openTabsCount } returns 1
         every { settings.topSitesSize } returns 2
         every { settings.installedAddonsCount } returns 3
@@ -143,12 +144,19 @@ class FenixApplicationTest {
         every { settings.showPocketRecommendationsFeature } returns true
         every { settings.showContileFeature } returns true
         every { application.reportHomeScreenMetrics(settings) } just Runs
+        every { application.getDeviceTotalRAM() } returns 7L
         every { settings.inactiveTabsAreEnabled } returns true
+        every { application.isDeviceRamAboveThreshold } returns true
 
         assertTrue(settings.contileContextId.isEmpty())
         assertNull(TopSites.contextId.testGetValue())
 
-        application.setStartupMetrics(browserStore, settings, browsersCache, mozillaProductDetector)
+        application.setStartupMetrics(
+            browserStore = browserStore,
+            settings = settings,
+            browsersCache = browsersCache,
+            mozillaProductDetector = mozillaProductDetector,
+        )
 
         // Verify that browser defaults metrics are set.
         assertEquals("Mozilla", Metrics.distributionId.testGetValue())
@@ -186,6 +194,8 @@ class FenixApplicationTest {
         assertEquals(true, Preferences.inactiveTabsEnabled.testGetValue())
         assertEquals(expectedAppInstallSource, Metrics.installSource.testGetValue())
         assertEquals(true, Metrics.defaultWallpaper.testGetValue())
+        assertEquals(true, Metrics.ramMoreThanThreshold.testGetValue())
+        assertEquals(7L, Metrics.deviceTotalRam.testGetValue())
 
         val contextId = TopSites.contextId.testGetValue()!!.toString()
 

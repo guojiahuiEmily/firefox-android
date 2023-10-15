@@ -24,6 +24,7 @@ import mozilla.components.feature.awesomebar.provider.SearchEngineSuggestionProv
 import mozilla.components.feature.awesomebar.provider.SearchSuggestionProvider
 import mozilla.components.feature.awesomebar.provider.SearchTermSuggestionsProvider
 import mozilla.components.feature.awesomebar.provider.SessionSuggestionProvider
+import mozilla.components.feature.fxsuggest.FxSuggestSuggestionProvider
 import mozilla.components.feature.syncedtabs.SyncedTabsStorageSuggestionProvider
 import mozilla.components.support.ktx.android.content.getColorFromAttr
 import org.junit.After
@@ -65,6 +66,7 @@ class AwesomeBarViewTest {
         every { any<Activity>().components.backgroundServices.syncedTabsStorage } returns mockk()
         every { any<Activity>().components.core.store.state.search } returns mockk(relaxed = true)
         every { any<Activity>().components.core.store.state.search } returns mockk(relaxed = true)
+        every { any<Activity>().settings() } returns mockk(relaxed = true)
         every { any<Activity>().getColorFromAttr(any()) } returns 0
         every { AwesomeBarView.Companion.getDrawable(any(), any()) } returns mockk<VectorDrawable>(relaxed = true) {
             every { intrinsicWidth } returns 10
@@ -640,19 +642,20 @@ class AwesomeBarViewTest {
 
         val localSessionsProviders = result.filterIsInstance<SessionSuggestionProvider>()
         assertEquals(1, localSessionsProviders.size)
-        assertNull(localSessionsProviders[0].resultsHostFilter)
+        assertNull(localSessionsProviders[0].resultsUriFilter)
     }
 
     @Test
     fun `GIVEN normal browsing mode and needing to show filtered local tabs suggestions WHEN configuring providers THEN add the tabs provider with an engine filter`() {
         val settings: Settings = mockk(relaxed = true)
+        val url = Uri.parse("https://www.test.com")
         every { activity.settings() } returns settings
         every { activity.browsingModeManager.mode } returns BrowsingMode.Normal
         val state = getSearchProviderState(
             showAllSessionSuggestions = false,
             searchEngineSource = SearchEngineSource.Shortcut(
                 mockk(relaxed = true) {
-                    every { resultsUrl.host } returns "test"
+                    every { resultsUrl } returns url
                 },
             ),
         )
@@ -661,7 +664,7 @@ class AwesomeBarViewTest {
 
         val localSessionsProviders = result.filterIsInstance<SessionSuggestionProvider>()
         assertEquals(1, localSessionsProviders.size)
-        assertEquals("test", localSessionsProviders[0].resultsHostFilter)
+        assertEquals(url, localSessionsProviders[0].resultsUriFilter)
     }
 
     @Test
@@ -764,24 +767,9 @@ class AwesomeBarViewTest {
     }
 
     @Test
-    fun `GIVEN unified search feature is enabled WHEN configuring providers THEN don't add the engine suggestions provider`() {
+    fun `GIVEN a search is made by the user WHEN configuring providers THEN search engine suggestion provider should always be added`() {
         val settings: Settings = mockk(relaxed = true) {
             every { showUnifiedSearchFeature } returns true
-        }
-        every { activity.settings() } returns settings
-        val state = getSearchProviderState(
-            searchEngineSource = SearchEngineSource.Default(mockk(relaxed = true)),
-        )
-
-        val result = awesomeBarView.getProvidersToAdd(state)
-
-        assertEquals(0, result.filterIsInstance<SearchEngineSuggestionProvider>().size)
-    }
-
-    @Test
-    fun `GIVEN unified search feature is disabled WHEN configuring providers THEN add the engine suggestions provider`() {
-        val settings: Settings = mockk(relaxed = true) {
-            every { showUnifiedSearchFeature } returns false
         }
         every { activity.settings() } returns settings
         val state = getSearchProviderState(
@@ -827,13 +815,13 @@ class AwesomeBarViewTest {
         assertEquals("www.test.com", syncedTabsProviders[1].resultsHostFilter) // the filtered synced tabs provider
         val localTabsProviders: List<SessionSuggestionProvider> = result.filterIsInstance<SessionSuggestionProvider>()
         assertEquals(2, localTabsProviders.size)
-        assertNull(localTabsProviders[0].resultsHostFilter) // the general tabs provider
-        assertEquals("www.test.com", localTabsProviders[1].resultsHostFilter) // the filtered tabs provider
+        assertNull(localTabsProviders[0].resultsUriFilter) // the general tabs provider
+        assertEquals(url, localTabsProviders[1].resultsUriFilter) // the filtered tabs provider
         assertEquals(1, result.filterIsInstance<SearchEngineSuggestionProvider>().size)
     }
 
     @Test
-    fun `GIVEN a search from the default engine with no suggestions asked WHEN configuring providers THEN don't add any provider`() {
+    fun `GIVEN a search from the default engine with no suggestions asked WHEN configuring providers THEN add only search engine suggestion provider`() {
         val settings: Settings = mockk(relaxed = true) {
             every { showUnifiedSearchFeature } returns true
         }
@@ -861,7 +849,7 @@ class AwesomeBarViewTest {
         assertEquals(0, result.filterIsInstance<SearchSuggestionProvider>().size)
         assertEquals(0, result.filterIsInstance<SyncedTabsStorageSuggestionProvider>().size)
         assertEquals(0, result.filterIsInstance<SessionSuggestionProvider>().size)
-        assertEquals(0, result.filterIsInstance<SearchEngineSuggestionProvider>().size)
+        assertEquals(1, result.filterIsInstance<SearchEngineSuggestionProvider>().size)
     }
 
     @Test
@@ -1057,6 +1045,46 @@ class AwesomeBarViewTest {
         val result = awesomeBarView.getProvidersToAdd(state)
 
         assertEquals(1, result.filterIsInstance<SearchTermSuggestionsProvider>().size)
+    }
+
+    @Test
+    fun `GIVEN Firefox Suggest is enabled WHEN the view is created THEN configure the Firefox Suggest suggestion provider`() {
+        val settings: Settings = mockk(relaxed = true) {
+            every { enableFxSuggest } returns true
+        }
+        every { activity.settings() } returns settings
+        val awesomeBarView = AwesomeBarView(
+            activity = activity,
+            interactor = mockk(),
+            view = mockk(),
+            fromHomeFragment = false,
+        )
+        val state = getSearchProviderState()
+
+        val result = awesomeBarView.getProvidersToAdd(state)
+
+        val fxSuggestProvider = result.firstOrNull { it is FxSuggestSuggestionProvider }
+        assertNotNull(fxSuggestProvider)
+    }
+
+    @Test
+    fun `GIVEN Firefox Suggest is disabled WHEN the view is created THEN don't configure the Firefox Suggest suggestion provider`() {
+        val settings: Settings = mockk(relaxed = true) {
+            every { enableFxSuggest } returns false
+        }
+        every { activity.settings() } returns settings
+        val awesomeBarView = AwesomeBarView(
+            activity = activity,
+            interactor = mockk(),
+            view = mockk(),
+            fromHomeFragment = false,
+        )
+        val state = getSearchProviderState()
+
+        val result = awesomeBarView.getProvidersToAdd(state)
+
+        val fxSuggestProvider = result.firstOrNull { it is FxSuggestSuggestionProvider }
+        assertNull(fxSuggestProvider)
     }
 }
 

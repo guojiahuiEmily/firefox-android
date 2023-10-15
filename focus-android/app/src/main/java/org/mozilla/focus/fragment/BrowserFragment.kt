@@ -321,6 +321,7 @@ class BrowserFragment :
             PromptFeature(
                 fragment = this,
                 store = components.store,
+                tabsUseCases = components.tabsUseCases,
                 customTabId = tryGetCustomTabId(),
                 fragmentManager = parentFragmentManager,
                 onNeedToRequestPermissions = { permissions ->
@@ -780,6 +781,13 @@ class BrowserFragment :
         // Custom tab content should always be visible, even if the app is locked.
         if (tab.isCustomTab()) {
             view?.isVisible = true
+        }
+
+        context?.settings?.openLinksInExternalApp?.let { openLinksInExternalApp ->
+            val isCustomTab = tab.isCustomTab()
+            components?.appLinksInterceptor?.updateLaunchInApp {
+                openLinksInExternalApp || isCustomTab
+            }
         }
     }
 

@@ -19,6 +19,7 @@ import mozilla.components.support.base.log.logger.Logger
 import mozilla.components.support.ktx.android.content.pm.isPackageInstalled
 import mozilla.components.support.ktx.android.net.isHttpOrHttps
 import mozilla.components.support.utils.Browsers
+import mozilla.components.support.utils.BrowsersCache
 import mozilla.components.support.utils.ext.queryIntentActivitiesCompat
 import mozilla.components.support.utils.ext.resolveActivityCompat
 import java.lang.Exception
@@ -50,11 +51,13 @@ private const val ANDROID_RESOLVER_PACKAGE_NAME = "android"
  * @param launchInApp If {true} then launch app links in third party app(s). Default to false because
  * of security concerns.
  * @param alwaysDeniedSchemes List of schemes that will never be opened in a third-party app.
+ * @param installedBrowsers List of all installed browsers on the device.
  */
 class AppLinksUseCases(
     private val context: Context,
-    private val launchInApp: () -> Boolean = { false },
+    private var launchInApp: () -> Boolean = { false },
     private val alwaysDeniedSchemes: Set<String> = ALWAYS_DENY_SCHEMES,
+    private val installedBrowsers: Browsers = BrowsersCache.all(context),
 ) {
     @Suppress(
         "QueryPermissionsNeeded", // We expect our browsers to have the QUERY_ALL_PACKAGES permission
@@ -69,6 +72,14 @@ class AppLinksUseCases(
             Logger("AppLinksUseCases").error("failed to query activities", e)
             emptyList()
         }
+    }
+
+    /**
+     * Update launchInApp for this instance of AppLinksUseCases
+     * @param launchInApp the new value of launchInApp
+     */
+    fun updateLaunchInApp(launchInApp: () -> Boolean) {
+        this.launchInApp = launchInApp
     }
 
     private fun findDefaultActivity(intent: Intent): ResolveInfo? {
@@ -104,8 +115,8 @@ class AppLinksUseCases(
             val redirectData = createBrowsableIntents(url)
             val isAppIntentHttpOrHttps = redirectData.appIntent?.data?.isHttpOrHttps ?: false
             val isEngineSupportedScheme = ENGINE_SUPPORTED_SCHEMES.contains(Uri.parse(url).scheme)
-            val isBrowserRedirect = redirectData.resolveInfo?.activityInfo?.packageName?.let {
-                Browsers.isBrowser(it)
+            val isBrowserRedirect = redirectData.resolveInfo?.activityInfo?.packageName?.let { packageName ->
+                installedBrowsers.isInstalled(packageName)
             } ?: false
 
             val fallbackUrl = when {
@@ -115,8 +126,7 @@ class AppLinksUseCases(
             }
 
             val appIntent = when {
-                redirectData.resolveInfo == null && isEngineSupportedScheme -> null
-                redirectData.resolveInfo == null && redirectData.marketplaceIntent != null -> null
+                redirectData.resolveInfo == null -> null
                 isBrowserRedirect && isEngineSupportedScheme -> null
                 includeHttpAppLinks && isAppIntentHttpOrHttps -> redirectData.appIntent
                 !launchInApp() && (isEngineSupportedScheme || fallbackUrl != null) -> null
@@ -172,11 +182,10 @@ class AppLinksUseCases(
                     context.packageName -> null
                     // no default app found but Android resolver shows there are multiple applications
                     // that can open this app link
-                    ANDROID_RESOLVER_PACKAGE_NAME -> {
-                        findActivities(appIntent).filter {
-                            it.filter != null &&
-                                !(it.filter.countDataPaths() == 0 && it.filter.countDataAuthorities() == 0)
-                        }.getOrNull(0)
+                    ANDROID_RESOLVER_PACKAGE_NAME, null -> {
+                        findActivities(appIntent).firstOrNull {
+                            it.filter != null
+                        }
                     }
                     // use default app
                     else -> {
@@ -292,6 +301,11 @@ class AppLinksUseCases(
     companion object {
         @VisibleForTesting(otherwise = VisibleForTesting.PRIVATE)
         internal var redirectCache: AppLinkRedirectCache? = null
+
+        @VisibleForTesting
+        internal fun clearRedirectCache() {
+            redirectCache = null
+        }
 
         // list of scheme from https://searchfox.org/mozilla-central/source/netwerk/build/components.conf
         internal val ENGINE_SUPPORTED_SCHEMES: Set<String> = setOf(

@@ -233,8 +233,7 @@ class SearchDialogFragment : AppCompatDialogFragment(), UserInteractionHandler {
         )
 
         val fromHomeFragment =
-            getPreviousDestination()?.destination?.id == R.id.homeFragment ||
-                getPreviousDestination()?.destination?.id == R.id.onboardingFragment
+            getPreviousDestination()?.destination?.id == R.id.homeFragment
 
         toolbarView = ToolbarView(
             requireContext(),

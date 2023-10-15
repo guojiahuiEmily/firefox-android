@@ -29,6 +29,7 @@ import mozilla.appservices.places.BookmarkRoot
 import mozilla.components.browser.state.selector.normalTabs
 import mozilla.components.browser.state.selector.privateTabs
 import mozilla.components.browser.state.store.BrowserStore
+import mozilla.components.concept.base.crash.Breadcrumb
 import mozilla.components.feature.downloads.ui.DownloadCancelDialogFragment
 import mozilla.components.feature.tabs.tabstray.TabsFeature
 import mozilla.components.support.base.feature.ViewBoundFeatureWrapper
@@ -125,6 +126,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment dismissTabsTray"),
+        )
         setStyle(STYLE_NO_TITLE, R.style.TabTrayDialogStyle)
     }
 
@@ -190,13 +194,18 @@ class TabsTrayFragment : AppCompatDialogFragment() {
             controller = tabsTrayController,
         )
 
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment onCreateDialog"),
+        )
         tabsTrayDialog = TabsTrayDialog(requireContext(), theme) { tabsTrayInteractor }
         return tabsTrayDialog
     }
 
     override fun onPause() {
         super.onPause()
-
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment onPause"),
+        )
         dialog?.window?.setWindowAnimations(R.style.DialogFragmentRestoreAnimation)
     }
 
@@ -231,9 +240,12 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                         appStore = requireComponents.appStore,
                         browserStore = requireComponents.core.store,
                         tabsTrayStore = tabsTrayStore,
+                        storage = requireComponents.core.thumbnailStorage,
                         displayTabsInGrid = requireContext().settings().gridTabView,
                         isInDebugMode = Config.channel.isDebug ||
                             requireComponents.settings.showSecretDebugMenuThisSession,
+                        shouldShowTabAutoCloseBanner = requireContext().settings().shouldShowAutoCloseTabsBanner &&
+                            requireContext().settings().canShowCfr,
                         shouldShowInactiveTabsAutoCloseDialog =
                         requireContext().settings()::shouldShowInactiveTabsAutoCloseDialog,
                         onTabPageClick = { page ->
@@ -281,6 +293,18 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                         onDeleteSelectedTabsClick = tabsTrayInteractor::onDeleteSelectedTabsClicked,
                         onBookmarkSelectedTabsClick = tabsTrayInteractor::onBookmarkSelectedTabsClicked,
                         onForceSelectedTabsAsInactiveClick = tabsTrayInteractor::onForceSelectedTabsAsInactiveClicked,
+                        onTabsTrayDismiss = ::onTabsTrayDismissed,
+                        onTabAutoCloseBannerViewOptionsClick = {
+                            navigationInteractor.onTabSettingsClicked()
+                            requireContext().settings().shouldShowAutoCloseTabsBanner = false
+                        },
+                        onTabAutoCloseBannerDismiss = {
+                            requireContext().settings().shouldShowAutoCloseTabsBanner = false
+                        },
+                        onTabAutoCloseBannerShown = {
+                            requireContext().settings().lastCfrShownTimeInMillis = System.currentTimeMillis()
+                        },
+                        onMove = tabsTrayInteractor::onTabsMove,
                     )
                 }
             }
@@ -289,6 +313,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                 FirefoxTheme(theme = Theme.getTheme(allowPrivateTheme = false)) {
                     TabsTrayFab(
                         tabsTrayStore = tabsTrayStore,
+                        isSignedIn = requireContext().settings().signedInFxaAccount,
                         onNormalTabsFabClicked = tabsTrayInteractor::onNormalTabsFabClicked,
                         onPrivateTabsFabClicked = tabsTrayInteractor::onPrivateTabsFabClicked,
                         onSyncedTabsFabClicked = tabsTrayInteractor::onSyncedTabsFabClicked,
@@ -313,6 +338,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
 
     override fun onStart() {
         super.onStart()
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment onStart"),
+        )
         findPreviousDialogFragment()?.let { dialog ->
             dialog.onAcceptClicked = ::onCancelDownloadWarningAccepted
         }
@@ -320,6 +348,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment onDestroyView"),
+        )
         _tabsTrayBinding = null
         _tabsTrayDialogBinding = null
         _fabButtonBinding = null
@@ -372,8 +403,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
         )
 
         setupBackgroundDismissalListener {
-            TabsTray.closed.record(NoExtras())
-            dismissAllowingStateLoss()
+            onTabsTrayDismissed()
         }
 
         if (!requireContext().settings().enableTabsTrayToCompose) {
@@ -434,6 +464,7 @@ class TabsTrayFragment : AppCompatDialogFragment() {
                     store = tabsTrayStore,
                     actionButton = fabButtonBinding.newTabButton,
                     interactor = tabsTrayInteractor,
+                    isSignedIn = requireContext().settings().signedInFxaAccount,
                 ),
                 owner = this,
                 view = view,
@@ -534,12 +565,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
 
-        if (!requireContext().settings().enableTabsTrayToCompose) {
-            trayBehaviorManager.updateDependingOnOrientation(newConfig.orientation)
-
-            if (requireContext().settings().gridTabView) {
-                tabsTrayBinding.tabsTray.adapter?.notifyDataSetChanged()
-            }
+        trayBehaviorManager.updateDependingOnOrientation(newConfig.orientation)
+        if (!requireContext().settings().enableTabsTrayToCompose && requireContext().settings().gridTabView) {
+            tabsTrayBinding.tabsTray.adapter?.notifyDataSetChanged()
         }
     }
 
@@ -554,6 +582,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
 
     @VisibleForTesting
     internal fun showCancelledDownloadWarning(downloadCount: Int, tabId: String?, source: String?) {
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("DownloadCancelDialogFragment show"),
+        )
         val dialog = DownloadCancelDialogFragment.newInstance(
             downloadCount = downloadCount,
             tabId = tabId,
@@ -690,6 +721,9 @@ class TabsTrayFragment : AppCompatDialogFragment() {
     internal fun dismissTabsTray() {
         // This should always be the last thing we do because nothing (e.g. telemetry)
         // is guaranteed after that.
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment dismissTabsTray"),
+        )
         dismissAllowingStateLoss()
     }
 
@@ -750,6 +784,14 @@ class TabsTrayFragment : AppCompatDialogFragment() {
         ).setText(text)
         snackbar.view.elevation = ELEVATION
         snackbar.show()
+    }
+
+    private fun onTabsTrayDismissed() {
+        context?.components?.analytics?.crashReporter?.recordCrashBreadcrumb(
+            Breadcrumb("TabsTrayFragment onTabsTrayDismissed"),
+        )
+        TabsTray.closed.record(NoExtras())
+        dismissAllowingStateLoss()
     }
 
     companion object {

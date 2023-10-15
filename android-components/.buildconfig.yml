@@ -779,6 +779,28 @@ projects:
     - support-utils
     - tooling-lint
     - ui-icons
+  feature-fxsuggest:
+    description: A component for accessing Firefox Suggest search suggestions.
+    path: components/feature/fxsuggest
+    publish: true
+    upstream_dependencies:
+    - browser-errorpages
+    - browser-state
+    - concept-awesomebar
+    - concept-base
+    - concept-engine
+    - concept-fetch
+    - concept-storage
+    - concept-toolbar
+    - feature-session
+    - lib-publicsuffixlist
+    - lib-state
+    - support-base
+    - support-ktx
+    - support-test
+    - support-utils
+    - tooling-lint
+    - ui-icons
   feature-intent:
     description: Combining various feature components for intent processing.
     path: components/feature/intent
@@ -819,24 +841,33 @@ projects:
     publish: true
     upstream_dependencies:
     - browser-errorpages
+    - browser-menu2
+    - browser-session-storage
     - browser-state
+    - browser-tabstray
+    - browser-thumbnails
     - concept-base
     - concept-engine
     - concept-fetch
+    - concept-menu
     - concept-storage
+    - concept-tabstray
     - concept-toolbar
     - feature-prompts
     - feature-session
+    - feature-tabs
     - lib-publicsuffixlist
     - lib-state
     - support-android-test
     - support-base
+    - support-images
     - support-ktx
     - support-test
     - support-utils
     - tooling-lint
     - ui-colors
     - ui-icons
+    - ui-tabcounter
     - ui-widgets
   feature-media:
     description: Feature component for website media related features.
@@ -885,17 +916,25 @@ projects:
     publish: true
     upstream_dependencies:
     - browser-errorpages
+    - browser-menu2
+    - browser-session-storage
     - browser-state
+    - browser-tabstray
+    - browser-thumbnails
     - concept-base
     - concept-engine
     - concept-fetch
+    - concept-menu
     - concept-storage
+    - concept-tabstray
     - concept-toolbar
     - feature-session
+    - feature-tabs
     - lib-publicsuffixlist
     - lib-state
     - support-android-test
     - support-base
+    - support-images
     - support-ktx
     - support-test
     - support-test-libstate
@@ -903,6 +942,7 @@ projects:
     - tooling-lint
     - ui-colors
     - ui-icons
+    - ui-tabcounter
     - ui-widgets
   feature-push:
     description: Feature that implements push notifications with a supported push
@@ -1588,6 +1628,7 @@ projects:
     - concept-tabstray
     - concept-toolbar
     - feature-awesomebar
+    - feature-fxsuggest
     - feature-search
     - feature-session
     - feature-tabs
@@ -1599,6 +1640,7 @@ projects:
     - support-images
     - support-ktx
     - support-locale
+    - support-rusthttp
     - support-utils
     - tooling-lint
     - ui-colors
@@ -2147,6 +2189,7 @@ projects:
     - support-test
     - support-utils
     - tooling-lint
+    - ui-colors
     - ui-icons
   ui-widgets:
     description: The standard set of Mozilla widgets.
